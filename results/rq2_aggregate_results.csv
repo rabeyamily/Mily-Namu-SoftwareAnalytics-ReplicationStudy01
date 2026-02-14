@@ -1,0 +1,6 @@
+Metric,Median Before,Median After,Projects Increased,p-value,Significant,Cliff's Delta,Effect
+Submitted PRs per release,5.0,26.0,64/87 (73.6%),0.000001,Yes,-0.473,medium
+Merged PRs per release,3.0,16.5,64/87 (73.6%),0.000000,Yes,-0.483,large
+Delivered PRs per release,1.0,5.0,60/87 (69.0%),0.000003,Yes,-0.405,medium
+Code churn per release,1828.0,3691.5,51/87 (58.6%),0.040306,Yes,-0.167,small
+Releases per year,9.31,11.36,46/87 (52.9%),0.374110,No,-0.077,negligible

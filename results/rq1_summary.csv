@@ -1,0 +1,4 @@
+Metric,Total,Significant,Faster After CI,Percent Faster After,Median Delta
+delivery_time,87,72,37/72,51.4%,0.005
+merge_time,87,61,16/61,26.2%,-0.103
+lifetime,87,70,34/70,48.6%,-0.031
