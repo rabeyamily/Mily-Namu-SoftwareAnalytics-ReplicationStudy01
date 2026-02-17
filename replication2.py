@@ -38,12 +38,9 @@ git_api.get_user().login
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (10, 6)
 
-# List of projects with which to replicate data collection process
-#PR_DATA_COLLECTION = ["Yelp/mrjob", "yiisoft/yii", "roots/sage", "vanilla/vanilla", "processing/p5.js"]
-PR_DATA_COLLECTION = ["mapbox/mapbox-gl-js"]
 
 # ============================================================================
-# CONFIGURATION - AUTOMATICALLY DETECTS CURRENT DIRECTORY
+# CONFIGURATION
 # ============================================================================
 
 # Get the directory where this script is located
@@ -52,10 +49,13 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Data files should be in the same directory as this script
 PR_DATA_FILE = os.path.join(SCRIPT_DIR, "pull_requests_meta_data.csv")
 RELEASE_DATA_FILE = os.path.join(SCRIPT_DIR, "releases_meta_data.csv") 
+PR_DATA_FILE_NEW = os.path.join(SCRIPT_DIR, "pull_requests_meta_data_new.csv")
+RELEASE_DATA_FILE_NEW = os.path.join(SCRIPT_DIR, "releases_meta_data_new.csv") 
 
 # Output directories (will be created in current directory)
 RESULTS_DIR = os.path.join(SCRIPT_DIR, "results")
 FIGURES_DIR = os.path.join(SCRIPT_DIR, "figures")
+RESULTS_NEW_DIR = os.path.join(RESULTS_DIR, "data_collection")
 
 ALPHA = 0.05  # Significance level
 DELTA_THRESHOLDS = {'negligible': 0.147, 'small': 0.33, 'medium': 0.474}
@@ -66,12 +66,17 @@ PRACTICE_AFTER_CI = "CI"
 try:
     os.makedirs(RESULTS_DIR, exist_ok=True)
     os.makedirs(FIGURES_DIR, exist_ok=True)
+    os.makedirs(RESULTS_NEW_DIR, exist_ok=True)
 except Exception as e:
     print(f"Warning: Could not create output directories: {e}")
     print(f"Results will be saved in: {SCRIPT_DIR}")
     RESULTS_DIR = SCRIPT_DIR
     FIGURES_DIR = SCRIPT_DIR
+    RESULTS_NEW_DIR = SCRIPT_DIR
 
+# List of projects with which to replicate data collection process
+#PR_DATA_COLLECTION = ["mapbox/mapbox-gl-js", "gollum/gollum", "dropwizard/metrics", "square/picasso", "humhub/humhub"]
+PR_DATA_COLLECTION = ["mapbox/mapbox-gl-js"]
 
 # ============================================================================
 # STATISTICAL UTILITIES
@@ -144,29 +149,30 @@ def wilcoxon_test(group1, group2):
 # DATA LOADING
 # ============================================================================
 
-def load_data():
+def load_data(PR, RELEASE):
     """Load PR and release data."""
     print("="*80)
     print("LOADING DATA")
     print("="*80)
     
     # Check if data files exist
-    if not os.path.exists(PR_DATA_FILE):
+    if not os.path.exists(PR):
         print(f"\nERROR: Cannot find pull_requests_meta_data.csv")
-        print(f"Looking for: {PR_DATA_FILE}")
+        print(f"Looking for: {PR}")
         print(f"\nPlease make sure the data files are in the same directory as this script:")
         print(f"  - pull_requests_meta_data.csv")
         print(f"  - releases_meta_data.csv")
         sys.exit(1)
     
-    if not os.path.exists(RELEASE_DATA_FILE):
+    if not os.path.exists(RELEASE):
         print(f"\nERROR: Cannot find releases_meta_data.csv")
-        print(f"Looking for: {RELEASE_DATA_FILE}")
+        print(f"Looking for: {RELEASE}")
         print(f"\nPlease make sure the data files are in the same directory as this script.")
         sys.exit(1)
     
     # Load PR data
-    pr_df = pd.read_csv(PR_DATA_FILE)
+    pr_df = pd.read_csv(PR)
+    pr_df.columns = pr_df.columns.str.strip() # debug
     
     # Clean up column names
     if 'Unnamed: 0' in pr_df.columns:
@@ -183,7 +189,7 @@ def load_data():
     print(f"  - {pr_df['project'].nunique()} unique projects")
     
     # Load release data
-    release_df = pd.read_csv(RELEASE_DATA_FILE)
+    release_df = pd.read_csv(RELEASE)
     release_df['startedAt'] = pd.to_datetime(release_df['startedAt'])
     release_df['publishedAt'] = pd.to_datetime(release_df['publishedAt'])
     release_df['practice'] = release_df['practice'].astype(str).str.strip()
@@ -211,7 +217,7 @@ def get_projects_with_both_phases(df):
 # RQ1 ANALYSIS
 # ============================================================================
 
-def analyze_rq1(pr_df):
+def analyze_rq1(pr_df, results_dir):
     """
     RQ1: Are merged pull requests released more quickly using continuous integration?
     Analyzes: delivery_time, merge_time, lifetime
@@ -273,7 +279,7 @@ def analyze_rq1(pr_df):
     
     # Save results
     for metric, df in all_results.items():
-        filepath = os.path.join(RESULTS_DIR, f'rq1_{metric}_results.csv')
+        filepath = os.path.join(results_dir, f'rq1_{metric}_results.csv')
         df.to_csv(filepath, index=False)
     
     # Create summary
@@ -292,7 +298,7 @@ def analyze_rq1(pr_df):
         })
     
     summary_df = pd.DataFrame(summary)
-    summary_path = os.path.join(RESULTS_DIR, 'rq1_summary.csv')
+    summary_path = os.path.join(results_dir, 'rq1_summary.csv')
     summary_df.to_csv(summary_path, index=False)
     
     print("\n" + "="*80)
@@ -307,7 +313,7 @@ def analyze_rq1(pr_df):
 # RQ2 ANALYSIS
 # ============================================================================
 
-def analyze_rq2(release_df):
+def analyze_rq2(release_df, results_dir):
     """
     RQ2: Does increased development activity after CI increase delivery time?
     Analyzes: PR rates, release frequency, churn
@@ -415,7 +421,7 @@ def analyze_rq2(release_df):
     })
     
     aggregate_df = pd.DataFrame(aggregate)
-    agg_path = os.path.join(RESULTS_DIR, 'rq2_aggregate_results.csv')
+    agg_path = os.path.join(results_dir, 'rq2_aggregate_results.csv')
     aggregate_df.to_csv(agg_path, index=False)
     
     print("\n" + "="*80)
@@ -425,7 +431,7 @@ def analyze_rq2(release_df):
     
     # Save individual results
     for metric, df in all_results.items():
-        filepath = os.path.join(RESULTS_DIR, f'rq2_{metric}_results.csv')
+        filepath = os.path.join(results_dir, f'rq2_{metric}_results.csv')
         df.to_csv(filepath, index=False)
     
     return all_results, aggregate_df
@@ -438,7 +444,7 @@ def data_collection() :
     print("Starting data collection...")
 
     PR_metadata = {
-        "":[], "X":[], "project":[], "pull_id":[], "pull_number":[], "commits_per_pr":[], "changed_files":[], 
+        "":[], "X":[], "project":[], "language":[], "pull_id":[], "pull_number":[], "commits_per_pr":[], "changed_files":[], 
         "churn":[], "comments":[], "comments_interval":[], "merge_workload":[], "description_length":[], 
         "contributor_experience":[], "queue_rank":[], "contributor_integration":[], "stacktrace_attached":[],
         "activities":[], "merge_time":[], "delivery_time":[], "practice":[]
@@ -450,44 +456,50 @@ def data_collection() :
 
     for pr_name in PR_DATA_COLLECTION :
         repo = git_api.get_repo(pr_name)
+        languages = repo.get_languages()
+        lang_tmp, num_tmp = next(iter(languages.items()))
+        for lang, num in languages.items() :
+            if num > num_tmp :
+                lang_tmp, num_tmp = lang, num
+        language = lang_tmp
+
 
         pulls = repo.get_pulls(state='all', sort="created", direction="asc")
         pulls_open = repo.get_pulls(state="open", sort="created", direction="asc")
         pulls_release = repo.get_pulls(state="closed", sort="updated", direction="asc")
+        # pulls = repo.get_pulls(state='all', sort="created", direction="dec")          #debug
+        # pulls_open = repo.get_pulls(state="open", sort="created", direction="dec")    #debug
+        # pulls_release = repo.get_pulls(state="closed", sort="updated", direction="dec")#debug
 
         releases = [r for r in repo.get_releases() if not r.prerelease]
-        releases.sort(key=lambda r: r.published_at)
 
         pr_ctr = 0
         for pr in pulls :
             try:
                 commit = repo.get_commit(pr.head.sha)
             except (GithubException, UnknownObjectException) as e:
-                #print(f"Warning: Cannot fetch commit for PR #{pr.number}: {e}") #debug
                 commit = None
             pr_ctr += 1
-            collect_PR_metadata(PR_metadata, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit)
+            collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit)
             if pr_ctr == 10 : # debug
                 break         # debug
-        collect_releases_metadata()
+        releases.sort(key=lambda r: r.published_at)
+        collect_releases_metadata(repo, releases_metadata, pr_name, pulls, releases)
 
 
 
     df_PR = pd.DataFrame(PR_metadata)
-
-    filepath = os.path.join(RESULTS_DIR, 'pull_requests_meta_data_new.csv')
-    df_PR.to_csv(filepath, sep="\t", index=False)
+    df_PR.to_csv(PR_DATA_FILE_NEW, sep="\t", index=False)
 
     df_release = pd.DataFrame(releases_metadata)
-
-    filepath = os.path.join(RESULTS_DIR, 'releases_meta_data_new.csv')
-    df_release.to_csv(filepath, sep="\t", index=False)
+    df_release.to_csv(RELEASE_DATA_FILE_NEW, sep="\t", index=False)
 
 
-def collect_PR_metadata(PR_metadata, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit) :
+def collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit) :
     PR_metadata[""].append(pr_ctr)
     PR_metadata["X"].append(pr_ctr)
     PR_metadata["project"].append(pr_name)
+    PR_metadata["language"].append(language)
     PR_metadata["pull_id"].append(pr.id)
     PR_metadata["pull_number"].append(pr.number)
     PR_metadata["commits_per_pr"].append(pr.commits)
@@ -513,7 +525,7 @@ def collect_PR_metadata(PR_metadata, pr_name, pulls, pulls_open, pulls_release, 
     total_entries = (
         pr.get_commits().totalCount +
         pr.get_reviews().totalCount +
-        pr.get_issue_comments().totalCount +
+        #pr.get_issue_comments().totalCount +   #debug
         pr.get_issue_events().totalCount
     )
     PR_metadata["activities"].append(total_entries)
@@ -622,7 +634,7 @@ def get_delivery_time_days(pr, releases):
     merged = to_utc_aware(pr.merged_at)
     release_date = to_utc_aware(releases[0].published_at)
     for release in releases :
-        if to_utc_aware(release.published_at) < merged :
+        if to_utc_aware(release.published_at) < merged :   #debug
             break
         release_date = to_utc_aware(release.published_at)
 
@@ -648,7 +660,7 @@ def check_CI(commit=None) :
 
 
 
-def collect_releases_metadata(repo, releases_metadata, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr) :
+def collect_releases_metadata(repo, releases_metadata, pr_name, pulls, releases) :
     pattern = re.compile(r"Merge pull request #(\d+)")
 
     for i, release in enumerate(releases):
@@ -670,7 +682,7 @@ def collect_releases_metadata(repo, releases_metadata, pr_name, pulls, pulls_ope
         # Identify released PRs via commits in release tag
         try:
             commit = repo.get_commit(release.tag.commit.sha)
-            # GitHub API compare with previous release to get commits in this release
+            # Compare with previous release to get commits in this release
             if i > 0:
                 compare = repo.compare(releases[i-1].tag_name, release.tag_name)
                 commits_in_release = compare.commits
@@ -701,7 +713,18 @@ def collect_releases_metadata(repo, releases_metadata, pr_name, pulls, pulls_ope
         releases_metadata["merged_pull_requests"].append(len(merged_prs_in_period))
         releases_metadata["released_pull_requests"].append(len(released_prs))
         releases_metadata["sum_submitted_pr_churn"].append(sum_churn)
-        releases_metadata["practice"].append() #todo
+        releases_metadata["practice"].append(check_release_CI(commits_in_release))
+
+def check_release_CI(commits_in_release) :
+    if not commits_in_release :
+        return "NO-CI"
+
+    for c in commits_in_release:
+        if check_CI(c) == "CI" :
+            return "CI"
+        
+    return "NO-CI"
+
 
 
 # ============================================================================
@@ -776,21 +799,18 @@ def main():
     print("="*80 + "\n")
     
     # Load data
-    pr_df, release_df = load_data()
+    pr_df, release_df = load_data(PR_DATA_FILE, RELEASE_DATA_FILE)
     
     # RQ1 Analysis
-    #rq1_results = analyze_rq1(pr_df)
+    rq1_results = analyze_rq1(pr_df, RESULTS_DIR)
     
     # RQ2 Analysis
-    #rq2_results, rq2_aggregate = analyze_rq2(release_df)
+    rq2_results, rq2_aggregate = analyze_rq2(release_df, RESULTS_DIR)
     
     # Visualizations
-    #create_visualizations(rq1_results, rq2_results)
-
-    # Data collection replication
-    data_collection()
+    create_visualizations(rq1_results, rq2_results)
     
-    # Final summary
+    # Summary
     print("\n" + "="*80)
     print(" ANALYSIS COMPLETE!")
     print("="*80)
@@ -812,6 +832,38 @@ def main():
     print("\nRQ2: Development Activity Changes")
     for _, row in rq2_aggregate.iterrows():
         print(f"  {row['Metric']}: {row['Median Before']} → {row['Median After']}")
+
+    # Data collection replication
+    print("\n" + "="*80)
+    print(" REPRODUCTION (DATA COLLECTION REPLICATION)")
+    print("="*80)
+
+    data_collection()
+
+    # Load the newly created data
+    pr_df_new, release_df_new = load_data(PR_DATA_FILE_NEW, RELEASE_DATA_FILE_NEW)
+
+    # RQ1 Analysis
+    rq1_results_new = analyze_rq1(pr_df_new, RESULTS_NEW_DIR)
+
+    # Final summary
+    print("\n" + "="*80)
+    print(" ANALYSIS COMPLETE!")
+    print("="*80)
+    
+    print("\n" + "="*80)
+    print(" KEY FINDINGS")
+    print("="*80)
+    
+    # RQ1 findings
+    print("\nRQ1: Impact on PR Delivery (Reproduced)")
+    for metric in ['delivery_time', 'merge_time', 'lifetime']:
+        df = rq1_results_new[metric]
+        sig = df[df['significant']]
+        if len(sig) > 0:
+            faster_after = len(sig[sig['faster_after_ci']])
+            print(f"  {metric}: {faster_after}/{len(sig)} ({faster_after/len(sig)*100:.1f}%) faster after CI")
+
     
     print("\n" + "="*80 + "\n")
 
