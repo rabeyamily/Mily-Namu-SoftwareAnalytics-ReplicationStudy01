@@ -739,7 +739,9 @@ def collect_releases_metadata(repo, releases_metadata, pr_name, pulls, releases)
 
         # Identify released PRs via commits in release tag
         try:
-            commit = retry_github(lambda: repo.get_commit(release.tag.commit.sha))
+            #commit = retry_github(lambda: repo.get_commit(release.tag.commit.sha))
+            tag_sha = get_tag_commit_sha(repo, release.tag_name)
+            commit = retry_github(lambda: repo.get_commit(tag_sha))
             # Compare with previous release to get commits in this release
             if i > 0:
                 compare = retry_github(lambda: repo.compare(releases[i-1].tag_name, release.tag_name))
@@ -782,6 +784,20 @@ def check_release_CI(commits_in_release) :
             return "CI"
         
     return "NO-CI"
+
+def get_tag_commit_sha(repo, tag_name):
+    # Resolve a release tag name to a commit SHA
+    
+    ref = retry_github(lambda: repo.get_git_ref(f"tags/{tag_name}"))
+    obj = ref.object  # GitObject
+
+    # annotated tag => object points to a tag object; dereference once
+    if obj.type == "tag":
+        tag_obj = retry_github(lambda: repo.get_git_tag(obj.sha))
+        return tag_obj.object.sha
+
+    # lightweight tag => object points directly to commit
+    return obj.sha
 
 
 
