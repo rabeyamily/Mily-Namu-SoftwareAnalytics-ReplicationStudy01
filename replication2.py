@@ -17,7 +17,7 @@ import seaborn as sns
 import os
 import sys
 import warnings
-#warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore')
 
 
 # Load environment variables from .env file
@@ -75,8 +75,8 @@ except Exception as e:
     RESULTS_NEW_DIR = SCRIPT_DIR
 
 # List of projects with which to replicate data collection process
-#PR_DATA_COLLECTION = ["mapbox/mapbox-gl-js", "gollum/gollum", "dropwizard/metrics", "square/picasso", "humhub/humhub"]
-PR_DATA_COLLECTION = ["mapbox/mapbox-gl-js"]
+PR_DATA_COLLECTION = ["andypetrella/spark-notebook", "mizzy/serverspec", "driftyco/ng-cordova", "craftyjs/Crafty", "androidannotations/androidannotations"]
+#PR_DATA_COLLECTION = ["andypetrella/spark-notebook"] #debug
 
 # ============================================================================
 # STATISTICAL UTILITIES
@@ -172,7 +172,7 @@ def load_data(PR, RELEASE):
     
     # Load PR data
     pr_df = pd.read_csv(PR)
-    pr_df.columns = pr_df.columns.str.strip() # debug
+    #pr_df.columns = pr_df.columns.str.strip() # debug
     
     # Clean up column names
     if 'Unnamed: 0' in pr_df.columns:
@@ -463,13 +463,9 @@ def data_collection() :
                 lang_tmp, num_tmp = lang, num
         language = lang_tmp
 
-
-        pulls = repo.get_pulls(state='all', sort="created", direction="asc")
-        pulls_open = repo.get_pulls(state="open", sort="created", direction="asc")
-        pulls_release = repo.get_pulls(state="closed", sort="updated", direction="asc")
-        # pulls = repo.get_pulls(state='all', sort="created", direction="dec")          #debug
-        # pulls_open = repo.get_pulls(state="open", sort="created", direction="dec")    #debug
-        # pulls_release = repo.get_pulls(state="closed", sort="updated", direction="dec")#debug
+        pulls = list(repo.get_pulls(state='all', sort="created", direction="desc"))
+        pulls_open = list(repo.get_pulls(state="open", sort="created", direction="desc"))
+        pulls_release = list(repo.get_pulls(state="closed", sort="updated", direction="desc"))
 
         releases = [r for r in repo.get_releases() if not r.prerelease]
 
@@ -481,18 +477,19 @@ def data_collection() :
                 commit = None
             pr_ctr += 1
             collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit)
-            if pr_ctr == 10 : # debug
-                break         # debug
+            #print("pr_ctr = ", pr_ctr) #debug
+            # if pr_ctr == 10 : # debug
+            #     break         # debug
         releases.sort(key=lambda r: r.published_at)
         collect_releases_metadata(repo, releases_metadata, pr_name, pulls, releases)
 
 
 
     df_PR = pd.DataFrame(PR_metadata)
-    df_PR.to_csv(PR_DATA_FILE_NEW, sep="\t", index=False)
+    df_PR.to_csv(PR_DATA_FILE_NEW, index=False)
 
     df_release = pd.DataFrame(releases_metadata)
-    df_release.to_csv(RELEASE_DATA_FILE_NEW, sep="\t", index=False)
+    df_release.to_csv(RELEASE_DATA_FILE_NEW, index=False)
 
 
 def collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit) :
@@ -513,7 +510,7 @@ def collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls
         PR_metadata["description_length"].append(0)
         PR_metadata["stacktrace_attached"].append(0)
     else :
-        PR_metadata["description_length"].append(len(pr.body)) # debug
+        PR_metadata["description_length"].append(len(pr.body))
         body = pr.body.lower()
         if "traceback" in body or "exception" in body or "error" in body :
             PR_metadata["stacktrace_attached"].append(1)
@@ -524,7 +521,7 @@ def collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls
     PR_metadata["contributor_integration"].append(get_average_delivery_time(pulls, pr))
     total_entries = (
         pr.get_commits().totalCount +
-        pr.get_reviews().totalCount +
+        # pr.get_reviews().totalCount +         #debug
         #pr.get_issue_comments().totalCount +   #debug
         pr.get_issue_events().totalCount
     )
@@ -625,6 +622,8 @@ def get_merge_time_days(pr):
 
     return delta.total_seconds() / (24 * 3600)  # convert seconds to days
 
+
+'''
 #Calculate delivery time in days
 def get_delivery_time_days(pr, releases):
     
@@ -633,14 +632,43 @@ def get_delivery_time_days(pr, releases):
 
     merged = to_utc_aware(pr.merged_at)
     release_date = to_utc_aware(releases[0].published_at)
+    print("release_date [0] = ", release_date) #debug
     for release in releases :
         if to_utc_aware(release.published_at) < merged :   #debug
             break
         release_date = to_utc_aware(release.published_at)
 
+    print("release_date [final] = ", release_date) #debug
     delta = release_date - merged
 
     return delta.total_seconds() / (24 * 3600)  # convert seconds to days
+'''
+
+
+#debug
+def get_delivery_time_days(pr, releases):
+    
+    if pr.merged_at is None or releases is None:
+        return 0
+
+    merged = pr.merged_at
+    release_date = releases[0].published_at
+    #print("release_date [0] = ", release_date) #debug
+    for release in releases :
+        if release.published_at < merged :
+            break
+        release_date = release.published_at
+
+    #print("release_date [final] = ", release_date) #debug
+    #print("merged = ", merged)                     #debug
+    delta = release_date - merged
+
+    return delta.total_seconds() / (24 * 3600)  # convert seconds to days
+
+
+
+
+
 
 def check_CI(commit=None) :
     if commit==None :
