@@ -8,7 +8,9 @@ import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
 from github import Github, Auth
+from github.GithubException import GithubException, UnknownObjectException
 from datetime import timezone
+import re
 from scipy.stats import mannwhitneyu, wilcoxon
 import matplotlib.pyplot as plt 
 import seaborn as sns
@@ -432,10 +434,8 @@ def analyze_rq2(release_df):
 # Data Collection
 # ============================================================================
 
-
-
-def collect_PR_metadata() :
-    print("Starting PR collection...")
+def data_collection() :
+    print("Starting data collection...")
 
     PR_metadata = {
         "":[], "X":[], "project":[], "pull_id":[], "pull_number":[], "commits_per_pr":[], "changed_files":[], 
@@ -443,63 +443,87 @@ def collect_PR_metadata() :
         "contributor_experience":[], "queue_rank":[], "contributor_integration":[], "stacktrace_attached":[],
         "activities":[], "merge_time":[], "delivery_time":[], "practice":[]
     }
+    releases_metadata = {
+        "project":[], "title":[], "startedAt":[], "publishedAt":[], "release_duration":[], "created_pull_requests": [], 
+        "merged_pull_requests": [], "released_pull_requests": [], "sum_submitted_pr_churn": [], "practice": []
+    }
 
     for pr_name in PR_DATA_COLLECTION :
         repo = git_api.get_repo(pr_name)
+
         pulls = repo.get_pulls(state='all', sort="created", direction="asc")
         pulls_open = repo.get_pulls(state="open", sort="created", direction="asc")
         pulls_release = repo.get_pulls(state="closed", sort="updated", direction="asc")
-        releases = repo.get_releases()
+
+        releases = [r for r in repo.get_releases() if not r.prerelease]
+        releases.sort(key=lambda r: r.published_at)
+
         pr_ctr = 0
         for pr in pulls :
-            commit = repo.get_commit(pr.head.sha)
+            try:
+                commit = repo.get_commit(pr.head.sha)
+            except (GithubException, UnknownObjectException) as e:
+                #print(f"Warning: Cannot fetch commit for PR #{pr.number}: {e}") #debug
+                commit = None
             pr_ctr += 1
-            PR_metadata[""].append(pr_ctr)
-            PR_metadata["X"].append(pr_ctr)
-            PR_metadata["project"].append(pr_name)
-            PR_metadata["pull_id"].append(pr.id)
-            PR_metadata["pull_number"].append(pr.number)
-            PR_metadata["commits_per_pr"].append(pr.commits)
-            PR_metadata["changed_files"].append(pr.changed_files)
-            PR_metadata["churn"].append(pr.additions + pr.deletions)
-            comments = pr.get_comments()
-            PR_metadata["comments"].append(comments.totalCount)
-            PR_metadata["comments_interval"].append(get_interval_average(comments))
-            PR_metadata["merge_workload"].append(get_merge_workload(pulls_open, pr))
-            if not pr.body :
-                PR_metadata["description_length"].append(0)
-                PR_metadata["stacktrace_attached"].append(0)
-            else :
-                PR_metadata["description_length"].append(len(pr.body)) # debug
-                body = pr.body.lower()
-                if "traceback" in body or "exception" in body or "error" in body :
-                    PR_metadata["stacktrace_attached"].append(1)
-            PR_metadata["contributor_experience"].append(get_contributor_experience(pulls, pr))
-            PR_metadata["queue_rank"].append(get_queue_rank(pulls_release, pr))
-            PR_metadata["contributor_integration"].append(get_average_delivery_time(pulls, pr))
-            total_entries = (
-                pr.get_commits().totalCount +
-                pr.get_reviews().totalCount +
-                pr.get_issue_comments().totalCount +
-                pr.get_issue_events().totalCount
-            )
-            PR_metadata["activities"].append(total_entries)
-            PR_metadata["merge_time"].append(get_merge_time_days(pr))
-            PR_metadata["delivery_time"].append(get_delivery_time_days(pr, releases))
-            PR_metadata["practice"].append(check_CI(commit))
+            collect_PR_metadata(PR_metadata, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit)
+            if pr_ctr == 10 : # debug
+                break         # debug
+        collect_releases_metadata()
 
-    df = pd.DataFrame(PR_metadata)
+
+
+    df_PR = pd.DataFrame(PR_metadata)
 
     filepath = os.path.join(RESULTS_DIR, 'pull_requests_meta_data_new.csv')
-    df.to_csv(filepath, sep="\t", index=False)
+    df_PR.to_csv(filepath, sep="\t", index=False)
+
+    df_release = pd.DataFrame(releases_metadata)
+
+    filepath = os.path.join(RESULTS_DIR, 'releases_meta_data_new.csv')
+    df_release.to_csv(filepath, sep="\t", index=False)
 
 
+def collect_PR_metadata(PR_metadata, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit) :
+    PR_metadata[""].append(pr_ctr)
+    PR_metadata["X"].append(pr_ctr)
+    PR_metadata["project"].append(pr_name)
+    PR_metadata["pull_id"].append(pr.id)
+    PR_metadata["pull_number"].append(pr.number)
+    PR_metadata["commits_per_pr"].append(pr.commits)
+    PR_metadata["changed_files"].append(pr.changed_files)
+    PR_metadata["churn"].append(pr.additions + pr.deletions)
+    comments = pr.get_comments()
+    PR_metadata["comments"].append(comments.totalCount)
+    PR_metadata["comments_interval"].append(get_interval_average(comments))
+    PR_metadata["merge_workload"].append(get_merge_workload(pulls_open, pr))
+    if not pr.body :
+        PR_metadata["description_length"].append(0)
+        PR_metadata["stacktrace_attached"].append(0)
+    else :
+        PR_metadata["description_length"].append(len(pr.body)) # debug
+        body = pr.body.lower()
+        if "traceback" in body or "exception" in body or "error" in body :
+            PR_metadata["stacktrace_attached"].append(1)
+        else :
+            PR_metadata["stacktrace_attached"].append(0)
+    PR_metadata["contributor_experience"].append(get_contributor_experience(pulls, pr))
+    PR_metadata["queue_rank"].append(get_queue_rank(pulls_release, pr))
+    PR_metadata["contributor_integration"].append(get_average_delivery_time(pulls, pr))
+    total_entries = (
+        pr.get_commits().totalCount +
+        pr.get_reviews().totalCount +
+        pr.get_issue_comments().totalCount +
+        pr.get_issue_events().totalCount
+    )
+    PR_metadata["activities"].append(total_entries)
+    PR_metadata["merge_time"].append(get_merge_time_days(pr))
+    PR_metadata["delivery_time"].append(get_delivery_time_days(pr, releases))
+    PR_metadata["practice"].append(check_CI(commit))
 
-def collect_release_metadata() :
-    return #todo
 
+#Convert a naive datetime from GitHub to UTC-aware datetime
 def to_utc_aware(dt):
-    #Convert a naive datetime from GitHub to UTC-aware datetime
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
@@ -526,9 +550,8 @@ def get_merge_workload(pulls_open, pr):
     
     return len(prior_open_prs)
 
+#Count the number of PRs previously submitted by the author of 'pr'
 def get_contributor_experience(pulls, pr):
-    #Count the number of PRs previously submitted by the author of 'pr'
-
     author = pr.user.login
     pr_created_at = to_utc_aware(pr.created_at)
     
@@ -540,9 +563,8 @@ def get_contributor_experience(pulls, pr):
     
     return len(prior_prs_by_author)
 
+#Compute the queue position of a PR among all merged PRs in the release
 def get_queue_rank(pulls_release, pr):
-    #Compute the queue position of a PR among all merged PRs in the release
-
     merged_prs = [p for p in pulls_release if p.merged_at is not None]
     merged_prs.sort(key=lambda p: to_utc_aware(p.merged_at))
 
@@ -553,9 +575,8 @@ def get_queue_rank(pulls_release, pr):
     # PR not found in merged PRs
     return 0
 
+#Compute the average delivery time (in days) of previously merged PRs
 def get_average_delivery_time(pulls, pr):
-    #Compute the average delivery time (in days) of previously merged PRs
-
     author = pr.user.login
     pr_created_at = to_utc_aware(pr.created_at)
 
@@ -582,8 +603,8 @@ def get_average_delivery_time(pulls, pr):
 
     return avg_days
 
+#Compute the number of days between PR submission and merge
 def get_merge_time_days(pr):
-    #Compute the number of days between PR submission and merge
     if pr.merged_at is None:
         return 0
     created = to_utc_aware(pr.created_at)
@@ -592,8 +613,9 @@ def get_merge_time_days(pr):
 
     return delta.total_seconds() / (24 * 3600)  # convert seconds to days
 
+#Calculate delivery time in days
 def get_delivery_time_days(pr, releases):
-    #Calculate delivery time in days
+    
     if pr.merged_at is None or releases is None:
         return 0
 
@@ -608,7 +630,9 @@ def get_delivery_time_days(pr, releases):
 
     return delta.total_seconds() / (24 * 3600)  # convert seconds to days
 
-def check_CI(commit) :
+def check_CI(commit=None) :
+    if commit==None :
+        return "NO-CI"
 
     # Combined status
     combined_status = commit.get_combined_status()
@@ -623,6 +647,61 @@ def check_CI(commit) :
     return "NO-CI"
 
 
+
+def collect_releases_metadata(repo, releases_metadata, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr) :
+    pattern = re.compile(r"Merge pull request #(\d+)")
+
+    for i, release in enumerate(releases):
+        published_at = release.published_at
+        started_at = releases[i-1].published_at if i > 0 else published_at
+
+        release_duration = (published_at - started_at).days
+
+        # PRs in this release period
+        prs_in_period = [
+            pr for pr in pulls
+            if pr.created_at >= started_at and pr.created_at <= published_at
+        ]
+        merged_prs_in_period = [
+            pr for pr in prs_in_period
+            if pr.merged_at and started_at <= pr.merged_at <= published_at
+        ]
+
+        # Identify released PRs via commits in release tag
+        try:
+            commit = repo.get_commit(release.tag.commit.sha)
+            # GitHub API compare with previous release to get commits in this release
+            if i > 0:
+                compare = repo.compare(releases[i-1].tag_name, release.tag_name)
+                commits_in_release = compare.commits
+            else:
+                commits_in_release = [commit]
+        except Exception:
+            commits_in_release = []
+
+        released_pr_numbers = set()
+        sum_churn = 0
+
+        for c in commits_in_release:
+            msg = c.commit.message
+            match = pattern.search(msg)
+            if match:
+                released_pr_numbers.add(int(match.group(1)))
+                sum_churn += c.stats.additions + c.stats.deletions
+
+        # Count PRs released
+        released_prs = [pr for pr in merged_prs_in_period if pr.number in released_pr_numbers]
+
+        releases_metadata["project"].append(pr_name)
+        releases_metadata["title"].append(release.tag_name)
+        releases_metadata["startedAt"].append(started_at.strftime("%Y-%m-%d %H:%M:%S"))
+        releases_metadata["publishedAt"].append(published_at.strftime("%Y-%m-%d %H:%M:%S"))
+        releases_metadata["release_duration"].append(release_duration)
+        releases_metadata["created_pull_requests"].append(len(prs_in_period))
+        releases_metadata["merged_pull_requests"].append(len(merged_prs_in_period))
+        releases_metadata["released_pull_requests"].append(len(released_prs))
+        releases_metadata["sum_submitted_pr_churn"].append(sum_churn)
+        releases_metadata["practice"].append() #todo
 
 
 # ============================================================================
@@ -709,7 +788,7 @@ def main():
     #create_visualizations(rq1_results, rq2_results)
 
     # Data collection replication
-    collect_PR_metadata()
+    data_collection()
     
     # Final summary
     print("\n" + "="*80)
