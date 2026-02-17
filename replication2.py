@@ -477,7 +477,7 @@ def data_collection() :
                 commit = None
             pr_ctr += 1
             collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit)
-            #print("pr_ctr = ", pr_ctr) #debug
+            print("pr_ctr = ", pr_ctr) #debug
             # if pr_ctr == 10 : # debug
             #     break         # debug
         releases.sort(key=lambda r: r.published_at)
