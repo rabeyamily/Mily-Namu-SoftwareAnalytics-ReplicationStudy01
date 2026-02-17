@@ -38,7 +38,7 @@ plt.rcParams['figure.figsize'] = (10, 6)
 
 # List of projects with which to replicate data collection process
 #PR_DATA_COLLECTION = ["Yelp/mrjob", "yiisoft/yii", "roots/sage", "vanilla/vanilla", "processing/p5.js"]
-PR_DATA_COLLECTION = ["Yelp/mrjob"]
+PR_DATA_COLLECTION = ["mapbox/mapbox-gl-js"]
 
 # ============================================================================
 # CONFIGURATION - AUTOMATICALLY DETECTS CURRENT DIRECTORY
@@ -449,8 +449,10 @@ def collect_PR_metadata() :
         pulls = repo.get_pulls(state='all', sort="created", direction="asc")
         pulls_open = repo.get_pulls(state="open", sort="created", direction="asc")
         pulls_release = repo.get_pulls(state="closed", sort="updated", direction="asc")
+        releases = repo.get_releases()
         pr_ctr = 0
         for pr in pulls :
+            commit = repo.get_commit(pr.head.sha)
             pr_ctr += 1
             PR_metadata[""].append(pr_ctr)
             PR_metadata["X"].append(pr_ctr)
@@ -464,18 +466,27 @@ def collect_PR_metadata() :
             PR_metadata["comments"].append(comments.totalCount)
             PR_metadata["comments_interval"].append(get_interval_average(comments))
             PR_metadata["merge_workload"].append(get_merge_workload(pulls_open, pr))
-            PR_metadata["description_length"].append(len(pr.body)) # debug
+            if not pr.body :
+                PR_metadata["description_length"].append(0)
+                PR_metadata["stacktrace_attached"].append(0)
+            else :
+                PR_metadata["description_length"].append(len(pr.body)) # debug
+                body = pr.body.lower()
+                if "traceback" in body or "exception" in body or "error" in body :
+                    PR_metadata["stacktrace_attached"].append(1)
             PR_metadata["contributor_experience"].append(get_contributor_experience(pulls, pr))
             PR_metadata["queue_rank"].append(get_queue_rank(pulls_release, pr))
-            PR_metadata["contributor_integration"].append(0)
-            PR_metadata["stacktrace_attached"].append(0)
-            PR_metadata["activities"].append(0)
-            PR_metadata["merge_time"].append(0)
-            PR_metadata["delivery_time"].append(0)
-            PR_metadata["practice"].append(0)
-
-
-
+            PR_metadata["contributor_integration"].append(get_average_delivery_time(pulls, pr))
+            total_entries = (
+                pr.get_commits().totalCount +
+                pr.get_reviews().totalCount +
+                pr.get_issue_comments().totalCount +
+                pr.get_issue_events().totalCount
+            )
+            PR_metadata["activities"].append(total_entries)
+            PR_metadata["merge_time"].append(get_merge_time_days(pr))
+            PR_metadata["delivery_time"].append(get_delivery_time_days(pr, releases))
+            PR_metadata["practice"].append(check_CI(commit))
 
     df = pd.DataFrame(PR_metadata)
 
@@ -487,6 +498,11 @@ def collect_PR_metadata() :
 def collect_release_metadata() :
     return #todo
 
+def to_utc_aware(dt):
+    #Convert a naive datetime from GitHub to UTC-aware datetime
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 def get_interval_average(comments) :
     if(comments.totalCount <= 0) :
@@ -526,6 +542,7 @@ def get_contributor_experience(pulls, pr):
 
 def get_queue_rank(pulls_release, pr):
     #Compute the queue position of a PR among all merged PRs in the release
+
     merged_prs = [p for p in pulls_release if p.merged_at is not None]
     merged_prs.sort(key=lambda p: to_utc_aware(p.merged_at))
 
@@ -534,14 +551,77 @@ def get_queue_rank(pulls_release, pr):
             return idx
     
     # PR not found in merged PRs
-    return None
+    return 0
 
+def get_average_delivery_time(pulls, pr):
+    #Compute the average delivery time (in days) of previously merged PRs
 
-def to_utc_aware(dt):
-    #Convert a naive datetime from GitHub to UTC-aware datetime
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+    author = pr.user.login
+    pr_created_at = to_utc_aware(pr.created_at)
+
+    # Filter PRs: previously submitted by the author and merged
+    prior_merged_prs = [
+        p for p in pulls
+        if p.user.login == author
+        and to_utc_aware(p.created_at) < pr_created_at
+        and p.merged_at is not None
+    ]
+
+    if not prior_merged_prs:
+        return 0  # No previous merged PRs
+
+    # Compute time to merge for each prior PR
+    time_deltas = [
+        (to_utc_aware(p.merged_at) - to_utc_aware(p.created_at)).total_seconds()
+        for p in prior_merged_prs
+    ]
+
+    # Average in days
+    avg_seconds = sum(time_deltas) / len(time_deltas)
+    avg_days = avg_seconds / (24 * 3600)
+
+    return avg_days
+
+def get_merge_time_days(pr):
+    #Compute the number of days between PR submission and merge
+    if pr.merged_at is None:
+        return 0
+    created = to_utc_aware(pr.created_at)
+    merged = to_utc_aware(pr.merged_at)
+    delta = merged - created
+
+    return delta.total_seconds() / (24 * 3600)  # convert seconds to days
+
+def get_delivery_time_days(pr, releases):
+    #Calculate delivery time in days
+    if pr.merged_at is None or releases is None:
+        return 0
+
+    merged = to_utc_aware(pr.merged_at)
+    release_date = to_utc_aware(releases[0].published_at)
+    for release in releases :
+        if to_utc_aware(release.published_at) < merged :
+            break
+        release_date = to_utc_aware(release.published_at)
+
+    delta = release_date - merged
+
+    return delta.total_seconds() / (24 * 3600)  # convert seconds to days
+
+def check_CI(commit) :
+
+    # Combined status
+    combined_status = commit.get_combined_status()
+    if combined_status.total_count > 0:
+        return "CI"
+
+    # Check suites (modern GitHub Actions and other apps)
+    check_suites = commit.get_check_suites()
+    if len(list(check_suites)) > 0:
+        return "CI"
+    
+    return "NO-CI"
+
 
 
 
