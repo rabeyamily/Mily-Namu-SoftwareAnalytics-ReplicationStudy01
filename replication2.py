@@ -26,6 +26,15 @@ def retry_github(fn, retries=5, base_delay=2):
     for attempt in range(retries):
         try:
             return fn()
+        except GithubException as e:
+            # for permanent client errors, fall back
+            if e.status in (400, 401, 403, 404, 422):
+                raise
+            if attempt == retries - 1:
+                raise
+            sleep = base_delay * (2 ** attempt) + random.uniform(0, 1)
+            print(f"GitHub error: {e}. Retrying in {sleep:.1f}s...")
+            time.sleep(sleep)
         except Exception as e:
             if attempt == retries - 1:
                 raise
@@ -483,11 +492,23 @@ def data_collection() :
         releases = [r for r in retry_github(lambda: repo.get_releases()) if not r.prerelease]
 
         pr_ctr = 0
+
         for pr in pulls :
-            if pr.merge_commit_sha:
-                commit = retry_github(lambda: repo.get_commit(pr.merge_commit_sha))
-            else:
-                commit = None
+            commit = None
+            sha = pr.merge_commit_sha or pr.head.sha
+            if sha:
+                try:
+                    commit = retry_github(lambda: repo.get_commit(sha))
+                except GithubException as e:
+                    if e.status == 422 and pr.merge_commit_sha and pr.head.sha:
+                        # fallback to head sha
+                        try:
+                            commit = retry_github(lambda: repo.get_commit(pr.head.sha))
+                        except Exception:
+                            commit = None
+                    else:
+                        commit = None
+            
             pr_ctr += 1
             collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit)
             print("pr_ctr = ", pr_ctr) #debug
