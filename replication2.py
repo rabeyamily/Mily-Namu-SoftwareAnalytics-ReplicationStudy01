@@ -11,6 +11,8 @@ from github import Github, Auth
 from github.GithubException import GithubException, UnknownObjectException
 from datetime import timezone
 import re
+import random
+import time
 from scipy.stats import mannwhitneyu, wilcoxon
 import matplotlib.pyplot as plt 
 import seaborn as sns
@@ -19,6 +21,17 @@ import sys
 import warnings
 warnings.filterwarnings('ignore')
 
+# GitHub retry helper #todo: implement
+def retry_github(fn, retries=5, base_delay=2):
+    for attempt in range(retries):
+        try:
+            return fn()
+        except Exception as e:
+            if attempt == retries - 1:
+                raise
+            sleep = base_delay * (2 ** attempt) + random.uniform(0, 1)
+            print(f"GitHub error: {e}. Retrying in {sleep:.1f}s...")
+            time.sleep(sleep)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -455,31 +468,31 @@ def data_collection() :
     }
 
     for pr_name in PR_DATA_COLLECTION :
-        repo = git_api.get_repo(pr_name)
-        languages = repo.get_languages()
+        repo = retry_github(lambda: git_api.get_repo(pr_name))
+        languages = retry_github(lambda: repo.get_languages())
         lang_tmp, num_tmp = next(iter(languages.items()))
         for lang, num in languages.items() :
             if num > num_tmp :
                 lang_tmp, num_tmp = lang, num
         language = lang_tmp
 
-        pulls = list(repo.get_pulls(state='all', sort="created", direction="desc"))
-        pulls_open = list(repo.get_pulls(state="open", sort="created", direction="desc"))
-        pulls_release = list(repo.get_pulls(state="closed", sort="updated", direction="desc"))
+        pulls = list(retry_github(lambda: repo.get_pulls(state='all', sort="created", direction="desc")))
+        pulls_open = list(retry_github(lambda: repo.get_pulls(state="open", sort="created", direction="desc")))
+        pulls_release = list(retry_github(lambda: repo.get_pulls(state="closed", sort="updated", direction="desc")))
 
-        releases = [r for r in repo.get_releases() if not r.prerelease]
+        releases = [r for r in retry_github(lambda: repo.get_releases()) if not r.prerelease]
 
         pr_ctr = 0
         for pr in pulls :
-            try:
-                commit = repo.get_commit(pr.head.sha)
-            except (GithubException, UnknownObjectException) as e:
+            if pr.merge_commit_sha:
+                commit = retry_github(lambda: repo.get_commit(pr.merge_commit_sha))
+            else:
                 commit = None
             pr_ctr += 1
             collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit)
             print("pr_ctr = ", pr_ctr) #debug
-            # if pr_ctr == 10 : # debug
-            #     break         # debug
+            # if pr_ctr == 100 : # debug
+            #      break         # debug
         releases.sort(key=lambda r: r.published_at)
         collect_releases_metadata(repo, releases_metadata, pr_name, pulls, releases)
 
@@ -520,10 +533,10 @@ def collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls
     PR_metadata["queue_rank"].append(get_queue_rank(pulls_release, pr))
     PR_metadata["contributor_integration"].append(get_average_delivery_time(pulls, pr))
     total_entries = (
-        pr.get_commits().totalCount +
+        retry_github(lambda: pr.get_commits()).totalCount +
         # pr.get_reviews().totalCount +         #debug
         #pr.get_issue_comments().totalCount +   #debug
-        pr.get_issue_events().totalCount
+        retry_github(lambda: pr.get_issue_events()).totalCount
     )
     PR_metadata["activities"].append(total_entries)
     PR_metadata["merge_time"].append(get_merge_time_days(pr))
@@ -666,21 +679,17 @@ def get_delivery_time_days(pr, releases):
     return delta.total_seconds() / (24 * 3600)  # convert seconds to days
 
 
-
-
-
-
 def check_CI(commit=None) :
     if commit==None :
         return "NO-CI"
 
     # Combined status
-    combined_status = commit.get_combined_status()
+    combined_status = retry_github(lambda: commit.get_combined_status())
     if combined_status.total_count > 0:
         return "CI"
 
     # Check suites (modern GitHub Actions and other apps)
-    check_suites = commit.get_check_suites()
+    check_suites = retry_github(lambda: commit.get_check_suites())
     if len(list(check_suites)) > 0:
         return "CI"
     
@@ -709,10 +718,10 @@ def collect_releases_metadata(repo, releases_metadata, pr_name, pulls, releases)
 
         # Identify released PRs via commits in release tag
         try:
-            commit = repo.get_commit(release.tag.commit.sha)
+            commit = retry_github(lambda: repo.get_commit(release.tag.commit.sha))
             # Compare with previous release to get commits in this release
             if i > 0:
-                compare = repo.compare(releases[i-1].tag_name, release.tag_name)
+                compare = retry_github(lambda: repo.compare(releases[i-1].tag_name, release.tag_name))
                 commits_in_release = compare.commits
             else:
                 commits_in_release = [commit]
