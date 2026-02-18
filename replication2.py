@@ -97,8 +97,7 @@ except Exception as e:
     RESULTS_NEW_DIR = SCRIPT_DIR
 
 # List of projects with which to replicate data collection process
-PR_DATA_COLLECTION = ["andypetrella/spark-notebook", "mizzy/serverspec", "driftyco/ng-cordova", "craftyjs/Crafty", "androidannotations/androidannotations"]
-#PR_DATA_COLLECTION = ["andypetrella/spark-notebook"] #debug
+PR_DATA_COLLECTION = ["mizzy/serverspec", "andypetrella/spark-notebook", "driftyco/ng-cordova", "craftyjs/Crafty", "androidannotations/androidannotations"]
 
 # ============================================================================
 # STATISTICAL UTILITIES
@@ -194,7 +193,6 @@ def load_data(PR, RELEASE):
     
     # Load PR data
     pr_df = pd.read_csv(PR)
-    #pr_df.columns = pr_df.columns.str.strip() # debug
     
     # Clean up column names
     if 'Unnamed: 0' in pr_df.columns:
@@ -511,9 +509,7 @@ def data_collection() :
             
             pr_ctr += 1
             collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls_release, releases, pr_ctr, pr, commit)
-            print("pr_ctr = ", pr_ctr) #debug
-            # if pr_ctr == 100 : # debug
-            #      break         # debug
+            #print("pr_ctr = ", pr_ctr)
         releases.sort(key=lambda r: r.published_at)
         collect_releases_metadata(repo, releases_metadata, pr_name, pulls, releases)
 
@@ -555,8 +551,6 @@ def collect_PR_metadata(PR_metadata, language, pr_name, pulls, pulls_open, pulls
     PR_metadata["contributor_integration"].append(get_average_delivery_time(pulls, pr))
     total_entries = (
         retry_github(lambda: pr.get_commits()).totalCount +
-        # pr.get_reviews().totalCount +         #debug
-        #pr.get_issue_comments().totalCount +   #debug
         retry_github(lambda: pr.get_issue_events()).totalCount
     )
     PR_metadata["activities"].append(total_entries)
@@ -656,30 +650,8 @@ def get_merge_time_days(pr):
 
     return delta.total_seconds() / (24 * 3600)  # convert seconds to days
 
-
-'''
 #Calculate delivery time in days
-def get_delivery_time_days(pr, releases):
-    
-    if pr.merged_at is None or releases is None:
-        return 0
 
-    merged = to_utc_aware(pr.merged_at)
-    release_date = to_utc_aware(releases[0].published_at)
-    print("release_date [0] = ", release_date) #debug
-    for release in releases :
-        if to_utc_aware(release.published_at) < merged :   #debug
-            break
-        release_date = to_utc_aware(release.published_at)
-
-    print("release_date [final] = ", release_date) #debug
-    delta = release_date - merged
-
-    return delta.total_seconds() / (24 * 3600)  # convert seconds to days
-'''
-
-
-#debug
 def get_delivery_time_days(pr, releases):
     
     if pr.merged_at is None or releases is None:
@@ -687,14 +659,12 @@ def get_delivery_time_days(pr, releases):
 
     merged = pr.merged_at
     release_date = releases[0].published_at
-    #print("release_date [0] = ", release_date) #debug
+    
     for release in releases :
         if release.published_at < merged :
             break
         release_date = release.published_at
 
-    #print("release_date [final] = ", release_date) #debug
-    #print("merged = ", merged)                     #debug
     delta = release_date - merged
 
     return delta.total_seconds() / (24 * 3600)  # convert seconds to days
