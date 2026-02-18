@@ -26,7 +26,7 @@ This replication reproduces RQ1 and RQ2 on the provided dataset of 87 projects. 
 Replication Study 01/
 ├── README.md                          # This file – documentation for the repository
 ├── requirements.txt                   # Python package dependencies and versions
-├── replication.py                     # Main replication script (RQ1 + RQ2 analysis)
+├── replication.py                     # Main replication script (RQ1 + RQ2 analysis + data collection)
 ├── pull_requests_meta_data.csv        # PR meta-data (from paper artifact; see Setup)
 ├── releases_meta_data.csv             # Release meta-data (from paper artifact; see Setup)
 ├── results/                           # Generated result files (outputs)
@@ -47,7 +47,7 @@ Replication Study 01/
 
 | Item | Description |
 |------|-------------|
-| **replication.py** | Single script that loads data, runs RQ1 and RQ2 analyses (Mann–Whitney, Wilcoxon, Cliff’s Delta), writes CSVs to `results/` and PNGs to `figures/`. |
+| **replication.py** | Single script that loads data, runs RQ1 and RQ2 analyses (Mann–Whitney, Wilcoxon, Cliff’s Delta), writes CSVs to `results/` and PNGs to `figures/`. It also includes data collection script. |
 | **requirements.txt** | Lists Python packages and minimum versions needed to run `replication.py`. |
 | **pull_requests_meta_data.csv** | Full PR dataset from the paper’s artifact (162,653 PRs, 87 projects). |
 | **releases_meta_data.csv** | Full release dataset from the paper’s artifact (7,440 releases). |
@@ -67,7 +67,10 @@ Replication Study 01/
   - numpy ≥ 1.21.0  
   - scipy ≥ 1.7.0  
   - matplotlib ≥ 3.4.0  
-  - seaborn ≥ 0.11.0  
+  - seaborn ≥ 0.11.0
+  - PyGithub>=1.2.7
+  - dotenv>=0.2.0
+
 
 No other dependencies or environment variables are required.
 
@@ -114,6 +117,12 @@ No other dependencies or environment variables are required.
 **How they were used:** Claude was used to generate code for producing the boxplots in a clean and readable manner, and to fix certain bugs in the replication scripts.
 
 **Brief description:** GenAI assisted with visualization code (matplotlib/seaborn boxplots for RQ1 and RQ2 summary figures) and debugging. For example, a bug was fixed where NaN values in group-wise statistical tests caused runtime errors when some projects had empty before- or after-CI groups; the fix added proper NaN filtering before calling Mann–Whitney and Wilcoxon tests. The core analysis logic, statistical tests, and data processing were implemented by the replication team. 
+
+**Tools used:** ChatGPT
+
+**How they were used:** ChatGPT was used to help with debugging the data collection script.
+
+**Brief description:** GenAI helped addressing errors in areas such as panda dataframe formatting, github API call semantics, and error catches.
 
 ## Acknowledgement
 
