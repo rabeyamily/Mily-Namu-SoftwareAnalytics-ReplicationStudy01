@@ -108,11 +108,13 @@ No other dependencies or environment variables are required.
 ---
 
 ## 4. GenAI Usage
-**Tools used:**
-**How they were used:**
-**Brief description:** 
----
-## Best Practices
+
+**Tools used:** Claude
+
+**How they were used:** Claude was used to generate code for producing the boxplots in a clean and readable manner, and to fix certain bugs in the replication scripts.
+
+**Brief description:** GenAI assisted with visualization code (matplotlib/seaborn boxplots for RQ1 and RQ2 summary figures) and debugging. For example, a bug was fixed where NaN values in group-wise statistical tests caused runtime errors when some projects had empty before- or after-CI groups; the fix added proper NaN filtering before calling Mann–Whitney and Wilcoxon tests. The core analysis logic, statistical tests, and data processing were implemented by the replication team. 
+
 ## Acknowledgement
 
 This README follows the CS-UH 3260 Software Analytics replication repository template. The replication study reproduces the analysis of Bernardo et al. (2018) for RQ1 and RQ2 using the artifact data and methodology.
